@@ -1,6 +1,9 @@
 import csv
 import numpy as np
+# division by zero is ok here
+np.seterr(divide='ignore')
 import argparse
+from scipy import sparse
 
 test_data = [
 ['simple', 5, [11,121,8587], '11,603,0.96,1892,0.94,1891,0.94,120,0.93,1894,0.93\n121,120,0.95,122,0.95,603,0.94,597,0.89,604,0.88\n8587,603,0.92,597,0.90,607,0.87,120,0.86,13,0.86'],
@@ -42,102 +45,120 @@ def load_names(csvfilename):
         csvfile.close()
         return result
 
-def compute_cooccurence(ratings, items2rec, n, algo='simple'):
-    print 'Computing top-%d cooccurences for items %s' % (n, ','.join(['%d'%e for e in items2rec]))
+# idx_list is a list of indexes with duplicates and gaps
+# ----
+# returns a dict old_idx -> new_idx
+def normalize_idx(idx_list):
+    # 1. remove duplicates and sort
+    used_idx = sorted(set(idx_list))
+    # 2. add new normalized index and put to a dict
+    return dict(zip(used_idx,range(len(used_idx))))
 
-    (num_users, num_items, max_grade) = map(max,*ratings)
-
-    #for now, two major performance issues
-    # - no normalization (excess rows/columns for gaps in ids)
-    # - no sparse matrices used
-    ## the following is proper processing of ratings, 
-    ## ratings = np.empty((num_users, num_items))
-    ## ratings.fill(np.nan)
-    ##for (u,i,r) in ratings_raw:
-    ##    ratings[int(u)][int(i)] = float(r)
-    ## however for this tasks we need just to extract
-    ##    binary data 'who rated what'
-    R = np.zeros((num_users+1, num_items+1))
-    for (u,i,r) in ratings:
-        R[u][i] = 1
-
+# ratings are ratings in (user,item,rating) form
+# -----
+# returns dicts for new indexes and sparse.csr_matrix with '1' for each fact when a user rated an item
+def ratings2facts(ratings):
+    # 1. normalize the data by creating custom user and item indexes
+    (user_col, item_col) = zip(*ratings)[:2]
+    user_idx = normalize_idx(user_col)
+    item_idx = normalize_idx(item_col)
+    # 2. create a sparse fact matrix from ratings
+    # coo_matrix((V,(I,J)))
+    R = sparse.coo_matrix(([1,]*len(user_col), ([user_idx[u] for u in user_col],[item_idx[i] for i in item_col])))
     print 'Ratings loaded to %dx%d matrix' % R.shape
+    
+    # convert to CSR for better performance
+    return user_idx, item_idx, R.tocsr()
 
-    #let's compute the formulae only for given items, otherwise in dense form it will compute too long time
-    G = R[:,items2rec]
-    num_items = R.shape[1]
+# R - rating facts as a binary sparse.csr_matrix
+# given_items - array of given items
+# n - how many similar items to return
+# algo - algorithm, either 'simple' or 'advanced'
+# -----
+# returns |items2rec| x n array of similar items
+def compute_cooccurence(R, given_items, n, algo='simple'):
+    print 'Computing top-%d cooccurences for items %s' % (n, ','.join(['%d'%e for e in given_items]))
 
     if algo == 'simple':
-        P = cooc_simple(R,G)
-        #extract top n other coocuring movies
-        #NB: since we need top-n except given item (as it will have the highest coocurence), 
-        #NB: retrieve n+1 and skip the first one
-        return [top_n_predictions(c, n+1)[1:] for c in P]
+        P = cooc_simple(R,given_items)
+
     elif algo == 'advanced':
-        P = cooc_advanced(R,G)
-        #extract top n other coocuring movies
-        return [top_n_predictions(c, n) for c in P]
+        P = cooc_advanced(R,given_items)
+
     else:
         print 'Unknown algorithm, exiting'
         exit()
+        
+    #extract top n other coocuring movies
+    #NB: since we need top-n except given item (as it will have the highest coocurence), 
+    #NB: retrieve n+1 and skip the first one
+    return [top_n_predictions(c.A.squeeze(), n+1)[1:] for c in P]
 
-# rated_X_and_Y[x,y] = number of users rated both x and y
-def rated_X_and_Y(R,X):
-    return np.dot(X.T, R)
+#returns dense matrix: [x,y] = number of users rated both item x and item y
+def rated_X_and_Y(R, given_items):
+    #highlight the fact the matrix is dense
+    return ( R[:,given_items].T * R ).todense()
 
-# rated_X[x] = number of users rated x
-def rated_X(R,X):
-    return np.array([X.sum(0),] * R.shape[1]).T
+#returns dense matrix: [x,:] = number of users rated item x
+def rated_X(R, given_items):
+    return R[:,given_items].sum(0).T * np.ones((1,R.shape[1]))
 
-# rated_Y_not_X[x,y] = number of users who haven't rated item x, but rated item y
-def rated_Y_not_X(R,X):
-    # yep, we just need to swap 0 and 1 in a raters of items X
-    # (G + 1) % 2 is another trick to swap 0 and 1 in binary matrix
-    return rated_X_and_Y(R, (X + 1) % 2)
-
-# not_rated_X[x] = number of users who haven't rated item x
-def not_rated_X(R,X):
-    # the same tricks as above
-    return rated_X(R, (X + 1) % 2)
-
-def cooc_simple(R,X):
+def cooc_simple(R,given_items):
     #build matrix M1 given_items x num_items, where M1[X,Y] = (rated both X and Y) / rated X:
     # - rated both X and Y: computed by dot product of binary matrix
     # - rated X: computed by column-wise sum, then duplicating that as a column
-    # - note that arrays are int, so we use true_divide to get float results
+    # - note that the matrix are int, so we use true_divide to get float results
 
-    P = np.true_divide ( rated_X_and_Y(R,X), 
-                            rated_X(R,X) )
+    P = np.true_divide ( rated_X_and_Y(R,given_items) , 
+                           rated_X(R,given_items) )
     return P
 
-def cooc_advanced(R,X):
+def cooc_advanced(R,given_items):
     # Build matrix M2 given_items x num_items, where 
-    #   M2[X,Y] = ((rated both X and Y) / rated X) / (rated Y not X) / rated not X
-    # Two points: 
-    # 1. Theoretically, both numerator and denominator can be computed using the same function cooc_simple defined above:
-    #    np.true_divide(cooc_simple(R,X) / cooc_simple(R, (X + 1) % 2))
-    #    where (X + 1) % 2 is a simple trick to swap 0 and 1 in binary matrix
-    #    However, in that case we have 3 divisions and loose a lot of precision. So pick a dumb approach:
-    # 2. For some y, there are no users rated y but not X (at least, for x = y). 
-    #    Let's mask them to avoid division by zero
-    # 3. Guys who teach the course consider users who didn't rate any movies
-    #    as idle, excluding them from this part of the formula. I would disagree, but fix this to get correct grading.
-    #    TODO: make treatment of such users set by parameters
+    #   M2[X,Y] = ( (rated both X and Y) / 
+    #                    rated X) / 
+    #              ( (rated A not X) / 
+    #                   not rated X )
+    # Let's avoid some divisions:
+    #           = ((rated both X and Y) * (not rated X)) / 
+    #               ( (rated X) * (rated Y not X) )
+    # Theoretically, both numerator and denominator can be computed using the same function cooc_simple
+    #    and swapping 0s and 1s in X. However, it is not a good idea to do the swap in a sparse matrix ;-) 
+    #    Instead, let's notice that 'not rated X = total users - rated X'
+    #    In a similar fashion, 'rated Y but not X = rated Y - rated Y and X'
+    #           = ((rated both X and Y) * (total users - rated X)) / 
+    #               ( (rated X) * (rated Y - rated X and Y) )
     
-    num_idle_users = R.sum(1).tolist().count(0);
+    rated_x = rated_X(R, given_items)
+    rated_x_and_y = rated_X_and_Y(R, given_items)
+    rated_y = np.ones((len(given_items),1)) * R.sum(0)
+    total_users = R.shape[0]
 
-    rated_y_not_x = rated_Y_not_X(R,X)
-    return np.true_divide( rated_X_and_Y(R,X) * ( not_rated_X(R,X) - num_idle_users ), 
-                             rated_X(R,X) * np.ma.masked_array(rated_y_not_x, rated_y_not_x == 0).filled(999999) )
+    # Also, for some y, there are no users rated y but not x (at least, for x = y). 
+    # Masking seem to be a bit awkward here, just dump the exception :-)
+    P = np.true_divide ( np.multiply( rated_x_and_y , total_users - rated_x ),
+                           np.multiply( rated_x , rated_y - rated_x_and_y ) )
+
+    return P
+
+# replace normalized indexes with given ones
+# [(new_idx, score)] -> [(old_idx, score)]
+def denormalize_predictions(predictions, old_idx):
+        denorm = sorted(old_idx.keys())
+        return [[(denorm[i],p) for (i,p) in pred] for pred in predictions]
 
 def run_tests(test_inputs):
     #read ratings
     ratings = load_ratings('../data/ratings.csv')
+    # normalize ratings
+    (user_idx, item_idx, R) = ratings2facts(ratings)
     print 'Running tests:'
     cnt = 1
     for (algorithm, n, given_items, output) in test_inputs:
+        given_items_norm = [item_idx[i] for i in given_items]
         print 'Test %d: top-%d using algorithm "%s"...' % (cnt, n, algorithm)
-        predictions = compute_cooccurence(ratings, given_items, n, algorithm)
+        predictions_norm = compute_cooccurence(R, given_items_norm, n, algorithm)
+        predictions = denormalize_predictions(predictions_norm, item_idx)
         print '\t...%s' % ('passed' if format_predictions(given_items,predictions) == output else 'failed')
         cnt += 1
 
@@ -157,25 +178,30 @@ def main():
 
     #more convenient names for parameters
     n = args.n
-    items2rec = [int(i) for i in args.items.split(',')]
+    given_items = [int(i) for i in args.items.split(',')]
     debug = args.debug
     algo = args.algo
 
     print 'Starting to generate top-%d recommendations' % args.n
 
-    #read all the data
-    users = load_names('../data/users.csv')
-    items = load_names('../data/movie-titles.csv')
+    #read the data
+    #users = load_names('../data/users.csv')
+    #items = load_names('../data/movie-titles.csv')
     ratings = load_ratings('../data/ratings.csv')
 
+    #extract facts and convert to matrix
+    (user_idx, item_idx, R) = ratings2facts(ratings)
+    given_items_norm = [item_idx[i] for i in given_items]
+
     #compute predictions
-    predictions = compute_cooccurence(ratings, items2rec, n, algo)
+    predictions_norm = compute_cooccurence(R, given_items_norm, n, algo)
+    predictions = denormalize_predictions(predictions_norm, item_idx)
 
     if not debug:
         #write to the file
-        predictions_to_csv(items2rec, predictions, '%s.csv' % algo)
+        predictions_to_csv(given_items, predictions, '%s.csv' % algo)
     else:
-        print 'Computed predictions:\n%s' % format_predictions(items2rec,predictions)
+        print 'Computed predictions:\n%s' % format_predictions(given_items,predictions)
 
 if __name__ == "__main__":
     main()
