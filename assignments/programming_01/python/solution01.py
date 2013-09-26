@@ -8,8 +8,8 @@ from score import cooc_simple, cooc_advanced
 from suggest import top_ns
 from printer import coursera_pa1_printer
 
-given_items = dict([('simple', [7443, 602, 280]), 
-                    ('advanced', [7443, 602, 280])])
+n = 5
+given_items = [7443, 602, 280]
 
 def generate_solution(algo, n, given_items, filename):
     # load the dataset
@@ -28,8 +28,8 @@ def generate_solution(algo, n, given_items, filename):
     print 'Predictions are written to %s' % filename
    
 def main():
-    generate_solution(cooc_simple, 5, given_items['simple'], 'simple.csv') 
-    generate_solution(cooc_advanced, 5, given_items['advanced'], 'advanced.csv') 
+    generate_solution(cooc_simple, n, given_items, 'simple.csv') 
+    generate_solution(cooc_advanced, n, given_items, 'advanced.csv') 
 
 if __name__ == "__main__":
     main()
