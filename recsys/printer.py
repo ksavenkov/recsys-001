@@ -1,15 +1,30 @@
 import dataset
 import numpy as np
 
-def coursera_pa1_printer(ds, item_idxs, scores, recs):
-    '''Given a dataset, scores and array of recommended items, stringify the latter
-        - ds is a dataset (see dataset.py)
-        - item_idxs are *normalized* ids of requested items (should be denormalized before output)
-        - scores is a dense np.matrix of scores (rows - requested items, cols - scores for other items)
-        - recs is an array of recomended items as normalized indexes, one row per each requested item
+def coursera_pa1_printer(items, recs):
+    '''Given a dataset, scores and array of recommended items, stringify the latter as a number of strings:
+       "given item, item1, score1, ... item5, score5". The parameters:
+        - items are ids of requested items (should be denormalized before output)
+        - recs is a 2D list of pairs (recommended item, score), one row per given user
     '''
-    assert(len(scores) == len(item_idxs) and len(scores) == len(recs))
+    assert(len(items) == len(recs))
 
-    return '\n'.join(['%d,' % ds.old_item_idx(item_idxs[i]) + 
-                        ','.join(['%d,%.2f' % (ds.old_item_idx(j),scores[i,j]) for j in recs[i]]) 
-                        for i in range(len(item_idxs))])
+    return '\n'.join(['%d,' % i + 
+                        ','.join(['%d,%.2f' % (j,s) for j,s in r]) 
+                        for i,r in zip(items, recs)])
+
+def coursera_pa2_printer(users, recs):
+    '''Print result of the 2nd assignment in a form of blocks (one per each given user):
+        recommendations for user USER_ID:
+          item1: score1 (as X.XXXX)
+          ...
+          item5: score5
+       The parameters:
+       - given_users is a list of original ids of given users
+       - recs is a 2D list of pairs (recommended item, score), one row per given user
+    '''
+    assert(len(recs) == len(users))
+
+    return '\n'.join(['recommendations for user %d:\n' % u + 
+                        '\n'.join(['  %d: %.4f' % (i,s) for i,s in r]) 
+                        for u,r in zip(users, recs)])
