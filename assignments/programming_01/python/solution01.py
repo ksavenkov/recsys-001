@@ -4,6 +4,7 @@ sys.path.append("../../../recsys")
 
 import recsys
 import dataset
+from model import PreferenceModel
 from score import cooc_simple, cooc_advanced
 from suggest import top_ns
 from printer import coursera_pa1_printer
@@ -13,17 +14,19 @@ given_items = [7443, 602, 280]
 
 def generate_solution(algo, n, given_items, filename):
     # load the dataset
-    ds = dataset.Dataset(verbose = True)
+    ds = dataset.DataIO(verbose = True)
     ds.load('../data/ratings.csv')
+    given_items = ds.translate_items(given_items)
     
     # build the recommender and generate predictions
-    rs = recsys.Recommender(ds, algo, top_ns, coursera_pa1_printer, verbose = True)
+    rs = recsys.Recommender(ds, PreferenceModel(verbose = True), algo, top_ns, verbose = True)
     rs.build()
-    predictions = rs.recommend(given_items, n)
+    recs = rs.recommend(given_items, n)
 
     # save the predictions to file
+    output = ds.print_recs(recs, given_items = given_items, printer = coursera_pa1_printer)
     file = open(filename, 'w')
-    file.write(predictions)
+    file.write(output)
     file.close()
     print 'Predictions are written to %s' % filename
    
