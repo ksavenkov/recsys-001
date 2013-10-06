@@ -29,7 +29,8 @@ def cooc_simple(model, given_items):
                            rated_X(R,given_items) )
 
     # cooccurence algorithms assume the given items aren't scored
-    P[range(len(given_items)),given_items] = 0 
+    # -1 is used because if there's less than n suggestions, 0s can also be recommended
+    P[range(len(given_items)),given_items] = 1
 
     return P
 
@@ -69,24 +70,46 @@ def cooc_advanced(model, given_items):
                np.ma.masked_array(cooc_not_x, zero_mask) )
     
     # cooccurence algorithms assume the given items aren't scored
-    P[range(len(given_items)),given_items] = 0 
+    # -1 is used because if there's less than n suggestions, 0s can also be recommended
+    P[range(len(given_items)),given_items] = -1 
 
     # fill missing vlaues (x/0 and 0/0) with 0 
     return P.filled(0)
 
 def tfidf_unweighted(model, given_users):
     '''For given user ids, return scores for all items we have.
+       We assume that model has TFIDF scores for items (I) and binary user preferences (P).
+       The preferences are used to compute unweughted user profiles.
     '''
     # get submatrix for given users (still sparse)
-    U_given = __build_user_profiles(model.P()[given_users], model.I())
+    U_given = __unweighted_user_profiles(model.P()[given_users], model.I())
     # having given user profiles in U_given and all item profiles, compute pairwise similarity (distance)
     # using cosine distance function
     scores = __cosine(U_given, model.I())
 
-    # now set to 0 scores of all items rated by user
+    # now set to -999 scores of all items rated by user
     # as we're working from dense matrix given_users x items, 
     # user the corresponding part of ratings matrix to mask all cells with ratings and fill them with zeros
-    return np.ma.masked_array(scores, model.R()[given_users].todense()).filled(0)
+    # -999 is used because if there's less than n suggestions, 0s can also be recommended
+    return np.ma.masked_array(scores, model.R()[given_users].todense()).filled(-999)
+
+def tfidf_weighted(model, given_users):
+    '''For given user ids, return scores for all items we have.
+       We assume the model has TFIDF item profiles (I) and user ratings (R).
+       First, we compute relative ratings for each user with the user median as a reference point.
+       Then, proceed with computing weighted user profiles.
+    '''
+    # get submatrix for given users (still sparse)
+    U_given = __weighted_user_profiles(model.R()[given_users], model.I())
+    # having given user profiles in U_given and all item profiles, compute pairwise similarity (distance)
+    # using cosine distance function
+    scores = __cosine(U_given, model.I())
+
+    # now set to -999 scores of all items rated by user
+    # as we're working from dense matrix given_users x items, 
+    # user the corresponding part of ratings matrix to mask all cells with ratings and fill them with zeros
+    # -999 is used because if there's less than n item user likes, we'll recommend some with score < 0
+    return np.ma.masked_array(scores, model.R()[given_users].todense()).filled(-1)
 
 def __cosine(U, I):
     '''Calculates the cosine distance between vectors in two sparse matrices U (a x b) and I (c x b).
@@ -102,9 +125,28 @@ def __cosine(U, I):
     # elementwise divide W by user x item matrix of profile norm multiplications
     return np.true_divide(W.todense(), dU * dI.T)
 
-def __build_user_profiles(P,I):
+def __unweighted_user_profiles(P,I):
     '''P - sparse CSR matrix of user preferences (user x item x {0,1})
        I - sparse CSR matrix of item profiles (item x feature x float)
-       Returns CSR matrix of user profiles (users x feature x float)
+       Returns CSR matrix of user profiles (users x feature x float), 
+       built as a sum of profiles for all items user 'likes'
     '''
     return P * I
+
+def __weighted_user_profiles(R,I):
+    '''R - sparse CSR matrix of user preferences (user x item x float)
+       I - sparse CSR matrix of item profiles (item x feature x float)
+       Returns CSR matrix of user profiles (users x feature x float),
+       built as a weighted sum of profiles for all items user rated, 
+       with a weight correlated with the rating value.
+       
+    '''
+    # NB: below the ratings are made dense. It is possible to avoid that, doing all operations
+    # on csr_matrix.data
+
+    # calculate mean ratings
+    U_mean = R.sum(1) / (R != 0).sum(1)
+    # subtract them from non-zero elements
+    U_relative = R - sparse.csr_matrix((R != 0).multiply(U_mean))
+
+    return U_relative * I

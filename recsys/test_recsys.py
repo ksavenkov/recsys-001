@@ -48,6 +48,18 @@ class RecommenderTest(unittest.TestCase):
         self.assertTrue(self.data.print_recs(recs, 
                             given_users = given_users, 
                             printer = pr.coursera_pa2_printer)  == expected)
+ 
+    def test_tfidf_weighted(self):
+        (n, given_users, expected) = [5, [4045,144,3855,1637,2919], 'recommendations for user 4045:\n  807: 0.1932\n  63: 0.1438\n  187: 0.0947\n  11: 0.0900\n  641: 0.0471\nrecommendations for user 144:\n  11: 0.1394\n  585: 0.1229\n  671: 0.1130\n  672: 0.0878\n  141: 0.0436\nrecommendations for user 3855:\n  1892: 0.2243\n  1894: 0.1465\n  604: 0.1258\n  462: 0.1050\n  10020: 0.0898\nrecommendations for user 1637:\n  393: 0.1976\n  24: 0.1900\n  2164: 0.1522\n  601: 0.1334\n  5503: 0.0992\nrecommendations for user 2919:\n  180: 0.1454\n  11: 0.1238\n  1891: 0.1172\n  424: 0.1074\n  2501: 0.0973']
+        self.data.load('testdata/ratings.csv', 'testdata/movie-tags.csv')
+        self.rs = Recommender(self.data, model.TFIDFModel(verbose = False), sc.tfidf_weighted, 
+                              sg.top_ns, verbose = False)
+        self.rs.build()
+        given_users = self.data.translate_users(given_users)
+        recs = self.rs.recommend(given_users,n)
+        self.assertTrue(self.data.print_recs(recs, 
+                            given_users = given_users, 
+                            printer = pr.coursera_pa2_printer)  == expected)
         
 if __name__ == '__main__':
     unittest.main()

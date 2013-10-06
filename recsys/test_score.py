@@ -23,6 +23,17 @@ class DummyTFIDFModel:
                       [ 1., 0., 10./3,  0.   ,  2.5 , 5./3],
                       [ 1., 0., 0.   ,  5.   ,  2.5 , 0.  ],
                       [ 1., 0., 0.   ,  20./3,  0.  , 5./3]])
+    def R(self):
+        return sparse.csr_matrix(
+                     [[4.0, 1.0, 0.0, 4.6, 0.0],
+                      [4.5, 4.0, 3.5, 3.7, 4.0],
+                      [5.0, 0.0, 3.4, 0.0, 4.0]])
+
+    def P(self):
+        return sparse.csr_matrix(
+                     [[1, 0, 0, 1, 0],
+                      [1, 1, 1, 1, 1],
+                      [1, 0, 0, 0, 1]])
 
 class CoocTest(unittest.TestCase):
 
@@ -108,22 +119,26 @@ class TFIDFTest(unittest.TestCase):
         self.model = DummyTFIDFModel()
     
     def test_unweighted(self):
-        expected = np.matrix([[ 0.83661284,  0.26910251,  0.44434619,  0.81608663,  0.73476803],
-                              [ 0.70704371,  0.63705899,  0.73164356,  0.75463312,  0.69770838],
-                              [ 0.79424985,  0.20054049,  0.33089257,  0.77205766,  0.85158558]]) 
+        expected = np.matrix([[ 0.          , 0.          , 0.44434619  , 0.          , 0.73476803],
+                              [ 0.          , 0.          , 0.          , 0.          , 0.        ],
+                              [ 0.          , 0.20054049  , 0.          , 0.77205766  , 0.        ]])
+        
         # convert to string form to avoid problems with float precision
         self.assertTrue(
-            ' '.join(['%.8f' % f for f in list(np.asarray(tfidf_unweighted(self.model, [0,1,2])).reshape(-1,))])
+            stringify_matrix(tfidf_unweighted(self.model, [0,1,2]))
             ==
-            ' '.join(['%.8f' % f for f in list(np.asarray(expected).reshape(-1,))]))
+            stringify_matrix(expected))
         self.assertTrue(
-            ' '.join(['%.8f' % f for f in list(np.asarray(tfidf_unweighted(self.model, [0,2])).reshape(-1,))])
+            stringify_matrix(tfidf_unweighted(self.model, [0,2]))
             ==
-            ' '.join(['%.8f' % f for f in list(np.asarray(expected[[0,2],:]).reshape(-1,))]))
+            stringify_matrix(expected[[0,2],:]))
         self.assertTrue(
-            ' '.join(['%.8f' % f for f in list(np.asarray(tfidf_unweighted(self.model, [1])).reshape(-1,))])
+            stringify_matrix(tfidf_unweighted(self.model, [1]))
             ==
-            ' '.join(['%.8f' % f for f in list(np.asarray(expected[[1],:]).reshape(-1,))]))
+            stringify_matrix(expected[[1],:]))
+
+def stringify_matrix(m):
+    return ' '.join(['%.8f' % f for f in list(np.asarray(m).reshape(-1,))])
 
 if __name__ == '__main__':
     unittest.main()

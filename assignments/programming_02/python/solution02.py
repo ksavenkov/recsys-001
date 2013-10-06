@@ -5,7 +5,7 @@ sys.path.append("../../../recsys")
 import recsys
 import dataset
 import model
-from score import tfidf_unweighted
+from score import tfidf_unweighted, tfidf_weighted
 from suggest import top_ns
 from printer import coursera_pa2_printer
 
@@ -36,7 +36,7 @@ def generate_solution(algo, n, given_users, filename):
   
 def main():
     generate_solution(tfidf_unweighted, n, given_users, 'unweighted.csv') 
-    #generate_solution(cooc_advanced, n, given_items, 'advanced.csv') 
+    generate_solution(tfidf_weighted, n, given_users, 'weighted.csv') 
 
 if __name__ == "__main__":
     main()

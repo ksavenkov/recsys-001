@@ -73,21 +73,18 @@ class TFIDFModelTest(unittest.TestCase):
         self.assertTrue(np.array_equal(P.todense(), P_expected))
 
     def test_tfidf_profiles(self):
-        I_expected = [[ 1., 5., 5./3 ,  5./3 ,  1.25, 5./3],
-                      [ 1., 0., 20./3,  0.   ,  1.25, 0.  ],
-                      [ 1., 0., 10./3,  0.   ,  2.5 , 5./3],
-                      [ 1., 0., 0.   ,  5.   ,  2.5 , 0.  ],
-                      [ 1., 0., 0.   ,  20./3,  0.  , 5./3]]
-        # at one cell we need to preserve original operations to match loss of precision
-        U_expected = [[ 2., 5., 5./3                  , 20./3, 3.75, 5./3 ],
-                      [ 5., 5., (5./3 + 20./3 + 10./3), 40./3, 7.5 , 5.   ],
-                      [ 2., 5., 5./3                  , 25./3, 1.25, 10./3]]
+        I_expected = np.matrix([[ 0.,          0.86991409,  0.27610534,  0.27610534,  0.12061088,  0.27610534],
+                                [ 0.,          0.        ,  0.9940897 ,  0.        ,  0.10856185,  0.        ],
+                                [ 0.,          0.        ,  0.83309624,  0.        ,  0.36392077,  0.41654812],
+                                [ 0.,          0.        ,  0.        ,  0.96011533,  0.27960428,  0.        ],
+                                [ 0.,          0.        ,  0.        ,  0.9701425 ,  0.        ,  0.24253563]])
         self.model.build(self.data)
         # test TFIDF item profile extraction
-        self.assertTrue(np.array_equal(self.model.I().todense(), I_expected))
-        # test user profile calculation
-        self.assertTrue(np.array_equal(self.model.U().todense(), U_expected))
-        pass
+        self.assertTrue(stringify_matrix(self.model.I().todense()) == 
+                        stringify_matrix(I_expected))
+
+def stringify_matrix(m):
+    return ' '.join(['%.8f' % f for f in list(np.asarray(m).reshape(-1,))])
 
 if __name__ == '__main__':
     unittest.main()
