@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 from scipy import sparse
-from score import cooc_simple, cooc_advanced, tfidf_unweighted
+from score import cooc_simple, cooc_advanced, tfidf_unweighted, tfidf_weighted
 
 class DummyPreferenceModel:
     def __init__(self, R):
@@ -59,20 +59,19 @@ class CoocTest(unittest.TestCase):
                   )
 
     def test_simple(self):
-        R1_simple = np.matrix([[ 0., 0.8, 0.6 ,  0.4 ,  0.2 ],
-                               [ 1., 0. , 0.75,  0.5 ,  0.25],
-                               [ 1., 1. , 0.  ,  2./3,  1./3],
-                               [ 1., 1. , 1.  ,  0.  ,  0.5 ],
-                               [ 1., 1. , 1.  ,  1.  ,  0.  ]])
-        R2_simple = np.matrix([[ 0. ,  0.5,  0.5,  0.5,  0.5,  1. ],
-                               [ 1. ,  0. ,  0. ,  1. ,  0. ,  1. ],
-                               [ 1. ,  0. ,  0. ,  0. ,  1. ,  1. ],
-                               [ 1. ,  1. ,  0. ,  0. ,  0. ,  1. ],
-                               [ 1. ,  0. ,  1. ,  0. ,  0. ,  1. ],
-                               [ 1. ,  0.5,  0.5,  0.5,  0.5,  0. ]])
-        R3_simple = np.matrix([[ 0. ,  0.5],
-                               [ 0.5,  0. ]])
-
+        R1_simple = np.matrix([[-1., 0.8, 0.6 ,  0.4 ,  0.2 ],
+                               [ 1.,-1. , 0.75,  0.5 ,  0.25],
+                               [ 1., 1. ,-1.  ,  2./3,  1./3],
+                               [ 1., 1. , 1.  , -1.  ,  0.5 ],
+                               [ 1., 1. , 1.  ,  1.  , -1.  ]])
+        R2_simple = np.matrix([[-1. ,  0.5,  0.5,  0.5,  0.5,  1. ],
+                               [ 1. , -1. ,  0. ,  1. ,  0. ,  1. ],
+                               [ 1. ,  0. , -1. ,  0. ,  1. ,  1. ],
+                               [ 1. ,  1. ,  0. , -1. ,  0. ,  1. ],
+                               [ 1. ,  0. ,  1. ,  0. , -1. ,  1. ],
+                               [ 1. ,  0.5,  0.5,  0.5,  0.5, -1. ]])
+        R3_simple = np.matrix([[-1. ,  0.5],
+                               [ 0.5, -1. ]])
         self.assertTrue(np.array_equal(cooc_simple(self.M1,range(self.M1.P().shape[1])), R1_simple))
         self.assertTrue(np.array_equal(cooc_simple(self.M2,range(self.M2.P().shape[1])), R2_simple))
         self.assertTrue(np.array_equal(cooc_simple(self.M3,range(self.M3.P().shape[1])), R3_simple))
@@ -84,19 +83,19 @@ class CoocTest(unittest.TestCase):
         self.assertTrue(np.array_equal(cooc_simple(self.M3,[1]), R3_simple[1,:]))
 
     def test_advanced(self):
-        R1_advanced = np.matrix([[ 0.        ,  0.        ,  0.        ,  0.        ,  0.        ],
-                                 [ 1.        ,  0.        ,  0.        ,  0.        ,  0.        ],
-                                 [ 1.        ,  2.        ,  0.        ,  0.        ,  0.        ],
-                                 [ 1.        ,  1.5       ,  3.        ,  0.        ,  0.        ],
-                                 [ 1.        ,  4./3      ,  2.        ,  4.        ,  0.        ]])
-        R2_advanced = np.matrix([[ 0.,  0.,  0.,  0.,  0.,  0.],
-                                 [ 1.,  0.,  0.,  0.,  0.,  1.],
-                                 [ 1.,  0.,  0.,  0.,  0.,  1.],
-                                 [ 1.,  0.,  0.,  0.,  0.,  1.],
-                                 [ 1.,  0.,  0.,  0.,  0.,  1.],
-                                [  0.,  0.,  0.,  0.,  0.,  0.]])
-        R3_advanced = np.matrix([[ 0. ,  0.5],
-                                 [ 0.5,  0. ]])
+        R1_advanced = np.matrix([[-1.        ,  0.        ,  0.        ,  0.        ,  0.        ],
+                                 [ 1.        , -1.        ,  0.        ,  0.        ,  0.        ],
+                                 [ 1.        ,  2.        , -1.        ,  0.        ,  0.        ],
+                                 [ 1.        ,  1.5       ,  3.        , -1.        ,  0.        ],
+                                 [ 1.        ,  4./3      ,  2.        ,  4.        , -1.        ]])
+        R2_advanced = np.matrix([[-1.,  0.,  0.,  0.,  0.,  0.],
+                                 [ 1., -1.,  0.,  0.,  0.,  1.],
+                                 [ 1.,  0., -1.,  0.,  0.,  1.],
+                                 [ 1.,  0.,  0., -1.,  0.,  1.],
+                                 [ 1.,  0.,  0.,  0., -1.,  1.],
+                                [  0.,  0.,  0.,  0.,  0., -1.]])
+        R3_advanced = np.matrix([[-1. ,  0.5],
+                                 [ 0.5, -1. ]])
 
         # full matrix computation
         self.assertTrue(np.array_equal(cooc_advanced(self.M1,range(self.M1.P().shape[1])), R1_advanced))
@@ -119,9 +118,9 @@ class TFIDFTest(unittest.TestCase):
         self.model = DummyTFIDFModel()
     
     def test_unweighted(self):
-        expected = np.matrix([[ 0.          , 0.          , 0.44434619  , 0.          , 0.73476803],
-                              [ 0.          , 0.          , 0.          , 0.          , 0.        ],
-                              [ 0.          , 0.20054049  , 0.          , 0.77205766  , 0.        ]])
+        expected = np.matrix([[ -999.         , -999.         , 0.44434619  , -999.         , 0.73476803],
+                              [ -999.         , -999.         , -999.         , -999.         , -999.       ],
+                              [ -999.         , 0.20054049  , -999.         , 0.77205766  , -999.       ]])
         
         # convert to string form to avoid problems with float precision
         self.assertTrue(
@@ -136,6 +135,26 @@ class TFIDFTest(unittest.TestCase):
             stringify_matrix(tfidf_unweighted(self.model, [1]))
             ==
             stringify_matrix(expected[[1],:]))
+
+    def test_weighted(self):
+        expected = np.matrix([[ -999.         , -999.         , -0.50277642  , -999.         , 0.50818190],
+                              [ -999.         , -999.         , -999.         , -999.         , -999.       ],
+                              [ -999.         , -0.24407424  , -999.         , 0.03498383  , -999.       ]])
+
+        # convert to string form to avoid problems with float precision
+        self.assertTrue(
+            stringify_matrix(tfidf_weighted(self.model, [0,1,2]))
+            ==
+            stringify_matrix(expected))
+        self.assertTrue(
+            stringify_matrix(tfidf_weighted(self.model, [0,2]))
+            ==
+            stringify_matrix(expected[[0,2],:]))
+        self.assertTrue(
+            stringify_matrix(tfidf_weighted(self.model, [1]))
+            ==
+            stringify_matrix(expected[[1],:]))
+
 
 def stringify_matrix(m):
     return ' '.join(['%.8f' % f for f in list(np.asarray(m).reshape(-1,))])

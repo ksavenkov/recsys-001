@@ -30,7 +30,7 @@ def cooc_simple(model, given_items):
 
     # cooccurence algorithms assume the given items aren't scored
     # -1 is used because if there's less than n suggestions, 0s can also be recommended
-    P[range(len(given_items)),given_items] = 1
+    P[range(len(given_items)),given_items] = -1
 
     return P
 
@@ -109,7 +109,7 @@ def tfidf_weighted(model, given_users):
     # as we're working from dense matrix given_users x items, 
     # user the corresponding part of ratings matrix to mask all cells with ratings and fill them with zeros
     # -999 is used because if there's less than n item user likes, we'll recommend some with score < 0
-    return np.ma.masked_array(scores, model.R()[given_users].todense()).filled(-1)
+    return np.ma.masked_array(scores, model.R()[given_users].todense()).filled(-999)
 
 def __cosine(U, I):
     '''Calculates the cosine distance between vectors in two sparse matrices U (a x b) and I (c x b).
