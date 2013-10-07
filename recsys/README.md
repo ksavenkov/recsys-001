@@ -15,7 +15,6 @@ Recommender -- provides the interface to the framework. It is not supposed to be
         recommend(ids, n) - recommend n objects for each of the objects passed in ids. Objects may 
             refer either to items or to users depending on score function used. I.e. this way it can be
             item-item, user-item, item-user or user-user recommendation.
-        
 
 DataIO -- class that is responsible for reading data from whatever source (CSV, DB, etc), 
            normalizing indexes for processing and writing results in denormalized form.
@@ -27,12 +26,6 @@ DataIO -- class that is responsible for reading data from whatever source (CSV, 
             - users (user_id x user), 
             - items (item_id x item),
             - tags (item_id x tag).
-        DataIO(ratings = RatingData(filename, normalized), tags = TagData(filename), printer = Printer()) - creates
-            an object, binds DataIO interface methods to the methods of the datasets. The datasets are
-            loaded from the sources in constructors as that's the only useful case we have for now.
-        ...see what should be exposed as we moved printer inside the class
-        
-         
 
 Model -- hosts the model computed from the data read via DataIO. This class encapsulates data
         that (1) shouldn't be recomputed to do a single recommendation and (2) should be recomputed
