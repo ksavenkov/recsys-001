@@ -59,13 +59,6 @@ class TFIDFModel:
         '''
         return self.__R
 
-    #consider moving to the scorer along with the user profile calculation
-    def seen(self, ids):
-        '''For each passed ID, returns a list of ids that are considered seen or uninteresting
-        '''
-        Rids = self.__R[ids,:]
-        return [Rids.indices[Rids.indptr[i]:Rids.indptr[i+1]] for i in range(len(Rids.indptr)-1)]
-
     def __build_user_preferences(self, ratings):
         # put '1' for all ratings >= 3.5 as a users x items matrix of user preferences
         self.__R = self.__convert_tocsr(ratings)
@@ -103,13 +96,73 @@ class TFIDFModel:
         '''Converts (id1, id2, n) triples to a sparse.csr_matrix of (id1, id2, 1)
             for all n >= threshold
         ''' 
-        # appy the threshold
+        # apply the threshold
         filtered_triples = [(a,b,c) for (a,b,c) in triples if c >= threshold] if threshold else triples
         # construct coo_matrix((V,(I,J))) and convert it to CSR for better performance
         R = sparse.coo_matrix(([1,]*len(filtered_triples), zip(*filtered_triples)[:2] )).tocsr()
         self.__log('\tdata converted to binary and loaded to %dx%d matrix' % R.shape)
         return R
     
+    def __log(self, msg):
+        if self.__verbose:
+            print msg
+
+class UserModel:
+    '''This model needs a dataset with user preferences (ratings).
+       When the model is built, the preferences are mean-normalized
+       if the argument mormalize is provided, 
+       the mean for each user is stored separately.
+    '''
+    def __init__(self, normalize = True, verbose = True):
+        self.__verbose = verbose
+        self.__normalize = normalize
+
+    def build(self, dataset):
+        '''Processes a dataset with user-item ratings.
+        '''
+        self.__build_user_preferences(dataset.ratings)
+
+    def R(self):
+        '''Return CSR matrix of user ratings (users x items x float)
+        '''
+        return self.__R
+
+    def P(self):
+        '''Return CSR matrix of user preferences (users x items x {0,1})
+        '''
+        return self.__P
+
+    def normalized(self):
+        return self.__normalize
+
+    def mean(self):
+        '''Return a vector of mean user ratings
+        '''
+        return self.__mean
+
+    def __build_user_preferences(self, ratings):
+        # put '1' for all ratings >= 3.5 as a users x items matrix of user preferences
+        self.__R = self.__convert_tocsr(ratings)
+        self.__P = self.__extract_facts(ratings)
+        self.__mean = self.__R.sum(1) / (self.__R != 0).sum(1)
+        if self.__normalize:
+            self.__R = self.__R - sparse.csr_matrix((self.__R != 0).multiply(self.__mean))
+
+    def __extract_facts(self, triples):
+        '''Converts (id1, id2, n) triples to a sparse.csr_matrix of (id1, id2, 1)
+        ''' 
+        # construct coo_matrix((V,(I,J))) and convert it to CSR for better performance
+        P = sparse.coo_matrix(([1,]*len(triples), zip(*triples)[:2] )).tocsr()
+        self.__log('\tdata converted to binary and loaded to %dx%d matrix' % P.shape)
+        return P
+ 
+    def __convert_tocsr(self, triples):
+        '''Converts (id1, id2, n) triples to a sparse.csr_matrix of (id1, id2, 1)''' 
+        # construct coo_matrix((V,(I,J))) and convert it to CSR for better performance
+        R = sparse.coo_matrix((zip(*triples)[2], zip(*triples)[:2])).tocsr()
+        self.__log('\tdata loaded to %dx%d matrix' % R.shape)
+        return R
+   
     def __log(self, msg):
         if self.__verbose:
             print msg

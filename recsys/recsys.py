@@ -42,6 +42,17 @@ class Recommender:
         P = self.__score(self.__model, ids)
         # select n from them
         return self.__suggest(P, n)
+
+    def recommend_from(self, ids, choose_from_ids):
+        '''For a given list of (normalized) ids, return scores of ids from choose_from_ids set'''
+        if not self.__built:
+            self.build()
+            self.__built == True
+        # score all possible recommendations
+        P = self.__score(self.__model, ids, choose_from_ids)
+        # select n from them
+        return P
+ 
         
     def __log(self, msg):
         if self.__verbose:

@@ -14,11 +14,13 @@ class DataIO:
         self.ratings = []           # [(user, item, rating)]
         self.item_tags = []         # {(user, tag, count)}
     
-    def load(self, ratings_file, tags_file = None):
+    def load(self, ratings_file, tags_file = None, items_file = None):
         '''Loads the data from a proper source, and performs index normalization.'''
         self.__read_ratings(ratings_file)
         if tags_file:
             self.__read_tags(tags_file)
+        if items_file:
+            self.__read_titles(items_file)
         self.__normalize()
         return
 
@@ -65,6 +67,10 @@ class DataIO:
         '''Get tag by index.'''
         return self.__item_tags[idx]
 
+    def title(self, idx):
+        '''Get title by (old) index.'''
+        return self.item_titles[idx]
+
     def tag_idx(self, tag):
         '''Get tag index.'''
         return self.__item_tag_idx[tag]
@@ -95,7 +101,18 @@ class DataIO:
             self.item_tags = [(i,t,c) for ((i,t),c) in tagdict.items()]
             self.__log('\tread %d entries' % len(self.item_tags))
             csvfile.close()
-            return
+
+    def __read_titles(self, filename):
+        self.__log('Reading (item_id,title) tuples from %s' % filename)
+        with open(filename, 'rbU') as csvfile:
+            self.item_titles = dict()
+            csv_reader = csv.reader(csvfile, delimiter=',')
+            # aggregate item-tag pairs
+            for (item, title) in csv_reader:
+                self.item_titles[int(item)] = title
+            # turn it into a list
+            self.__log('\tread %d entries' % len(self.item_titles.keys()))
+            csvfile.close()
 
     def __normalize(self):
         '''Normalize the data by creating custom user and item indexes'''

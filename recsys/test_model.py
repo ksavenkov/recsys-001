@@ -1,8 +1,9 @@
 import unittest
 import numpy as np
+from scipy import sparse
 
 import dataset as ds
-from model import PreferenceModel, TFIDFModel
+from model import PreferenceModel, TFIDFModel, UserModel
 
 class PreferenceModelTest(unittest.TestCase):
 
@@ -82,6 +83,25 @@ class TFIDFModelTest(unittest.TestCase):
         # test TFIDF item profile extraction
         self.assertTrue(stringify_matrix(self.model.I().todense()) == 
                         stringify_matrix(I_expected))
+
+class TestUserModel(unittest.TestCase):
+    def setUp(self):
+        self.data = DummyDataset()
+        self.model = UserModel(verbose = False)
+        self.model.build(self.data)
+
+    def test_mean(self):
+        expected = np.matrix([[ 3.2       ],
+                              [ 3.94      ],
+                              [ 4.13333333]])
+        self.assertTrue(stringify_matrix(self.model.mean()) == stringify_matrix(expected))
+
+    def test_users(self):
+        expected = sparse.csr_matrix(
+                      [[ 0.8       , -2.2       , 0.0       ,  1.4       ,  0.0       ],
+                       [ 0.56      ,  0.06      , -0.44     , -0.24      ,  0.06      ],
+                       [ 0.86666667,  0.0       , -0.73333333, 0.0       , -0.13333333]])
+        self.assertTrue(stringify_matrix(self.model.R().todense()) == stringify_matrix(expected.todense()))
 
 def stringify_matrix(m):
     return ' '.join(['%.8f' % f for f in list(np.asarray(m).reshape(-1,))])

@@ -60,6 +60,6 @@ class RecommenderTest(unittest.TestCase):
         self.assertTrue(self.data.print_recs(recs, 
                             given_users = given_users, 
                             printer = pr.coursera_pa2_printer)  == expected)
-        
+       
 if __name__ == '__main__':
     unittest.main()
