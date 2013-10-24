@@ -1,0 +1,346 @@
+# HEY! That's python code!
+#      Here's uesr_based_knn scorer, then a couple of functions I used to identify top n users per item 
+#      and take the cosine distance (yep, I wrote my own). Below that, there are definitions for 
+#      Model class (I use it to store ratings) and DataIO class (I use it to read and write files).
+#      Also I use NumPy (http://numpy.org) and SciPy (http://scipy.org) for numerical computations 
+#      and sparse matrix algebra
+
+def user_based_knn(model, n, given_users, given_items, distance, promote_users = True, 
+                                                    exclude_seen = False, normalize = 'none'):
+    '''For each (user,item) pair, identify n nearest neighbours that rated this item, 
+       using distance on rating vectors (already mean-centered from model), 
+       then compute mean-centered average score for this item using those n nighbours.
+       Parameter promote_users says if users from below n should be promoted to the nearest in case 
+        some of the top n similar users have rated one of the items. 
+       Parameter normalize reflects how we should normalize predicted scores:
+        - 'none': no normalization, compute weighted sum of neighbour's scores
+        - 'normalize': compute wighted sum of mean scores, add mean rating of the user
+        - 'centered': using mean-centered ratings, thus no normalization in that final formula, but still add the mean
+       The model should provide:
+        - model.R() - a sparse CSR matrix of mean-centered user ratings,
+        - model.mean() - a vector of user mean ratings. 
+       NB: consider replacing the loops with sparse tensor operations.
+    '''
+    # 1. for each given user, calculate similarity with all users that co-rated at least 1 item
+    #       (anyway we'll need them all when will calculate by-item neighbours)
+    # We keep matrices sparse (e.g. only non-zero similarities are computed):
+    #       S is a given_users x all_users sparse matrix
+    S = distance(model.R()[given_users], model.R())                           # given_users x all_users (sparse)
+
+    # prepare empty matrix to keep all the scores user x item
+    scores = np.zeros((len(given_users), len(given_items)))                # given_users x given_items (will be dense)
+
+    for u in range(len(given_users)):
+        # 2. for each given user, identify n nearest neighbours for each given item
+        neighbours = S[u,:]                                                 # 1 x all_users (sparse)
+        # remove the user himself from the matrix
+        neighbours[0,given_users[u]] = 0
+
+        # 2.1 put distance to neighbours to diagonal matrix
+        neighbours_diag = sparse.spdiags(neighbours.todense(), 0, 
+                                         neighbours.shape[1], neighbours.shape[1])  # all_users x all_users (sparse)
+
+        # 2.2 multiply neighbour similarities on a binary rating matrix
+        # the result is all_users x given_items sparse matrix for user u, 
+        # where (i,j) = similarity(u,i) iff u and i rated item j
+        # NB: here we don't check R() == 0 as rating values may be mean-centered, 
+        #     in which case 0 doesn't mean the user hasn't rated the item.
+        #     Instead, we use P() binary matrix that was built based on the original ratings
+        item_neighbours = neighbours_diag * model.P()[:,given_items]  # all_users x given_items (sparse)
+        
+        # if we promote users, do per-item maximum and wipe the rest
+        if promote_users:
+            # 2.3 turn into 0 everything but the first n values in each item column (inplace)
+            leave_top_n(item_neighbours, n)                                      # all_users x given_items (sparse)
+        else:
+            # else identify top-n users (ids)
+            top_neighbours = np.asarray(neighbours.todense()).reshape(-1).argsort()[::-1][:n]
+            # then leave only their scores
+            the_rest = np.setdiff1d(range(item_neighbours.shape[0]),top_neighbours)
+            item_neighbours[the_rest,:] = 0
+            item_neighbours.eliminate_zeros() 
+
+        if normalize == 'normalize':
+            # 2.4 having all_users x given_items matrix with similarities for top-n neighbours per each item
+            #        use all_users x given_items matrix of their mean-centered scores
+            #        to compute normalized average score for each of the items
+            # The normalized average score p(u,i) for user u and item i is computed as 
+            #       p(u,i) = mu(u) + sum(n_neighbours(u,i), sim(u,v) * (r(v,i) - mu(v))) /
+            #                               sum(n_neighbours(u,i), |sim(u,v)|)
+            # 3. put it to the proper position in the scores (given_users x given_items) matrix
+            ratings = model.R() - (model.R() != 0).multiply(model.mean())
+            weights_sum = np.asarray(item_neighbours.sum(0)).reshape(-1)
+            scores[u,:] = (np.true_divide(item_neighbours.multiply(ratings[:,given_items]).sum(0), 
+                            np.ma.masked_array(weights_sum, weights_sum == 0)) + model.mean()[given_users[u]]).filled(0)
+        elif normalize == 'centered':
+            weights_sum = np.asarray(item_neighbours.sum(0)).reshape(-1)
+            scores[u,:] = (np.true_divide(item_neighbours.multiply(model.R()[:,given_items]).sum(0), 
+                            np.ma.masked_array(weights_sum, weights_sum == 0)) + model.mean()[given_users[u]]).filled(0)
+        elif normalize == 'none':
+            weights_sum = np.asarray(item_neighbours.sum(0)).reshape(-1)
+            scores[u,:] = np.true_divide(item_neighbours.multiply(model.R()[:,given_items]).sum(0),
+                            np.ma.masked_array(weights_sum, weights_sum == 0)).filled(0)
+        else:
+            print 'No such normalization: ', normalize
+
+    if exclude_seen:
+        # now set to -999 scores of all items rated by user
+        # as we're working from dense matrix given_users x items, 
+        # use the corresponding part of ratings matrix to mask all cells with ratings and fill them with -999
+        # -999 is used because if there's less than n item user likes, we'll recommend some with score < 0
+        scores = np.ma.masked_array(scores, model.R()[given_users][:,given_items].todense()).filled(-999)
+
+    return scores
+
+def leave_top_n(M, n):
+    '''For sparse CSR matrix M with float values, mask everything but up to n top elements in each column
+    '''
+    # get top n sorted indexes for each column (cols -> sort indexes -> revert -> take top n rows):
+    # we're interested in non-0 correlations as 0s are for users w/o data to compute the correlation
+
+    # FIXME ugly cycle, consider replace with more numpythonic idiom
+    # iterate through columns / items
+    for i in range(M.shape[1]):
+        # for each column, attach original row indexes to data
+        nonzero_elements = zip(M[:,i].data, __csr_row_indices(M[:,i].indptr))
+        # then sort the data and get indexes of everything outside of top-n .data elements
+        # reverse sort by 0th -> split to columns -> take 1th -> take after nth
+        tail_indices = zip(*sorted(nonzero_elements, key = lambda a : a[0], reverse = True))[1][n:]
+        # set those to zero
+        M[tail_indices,i] = 0
+
+    # eliminate zeros from the sparse matrix
+    M.eliminate_zeros()
+
+def cosine(U, I):
+    '''Calculates the cosine distance between vectors in two sparse matrices U (a x b) and I (c x b).
+       The result is written to sparse a x c matrix.
+       cosine(u,v) = ( u .* v ) / (|u| * |v|)
+    '''
+    # u .* v numerator, assume that U() is |u| x |t| and I() is |i| x |t|, hence W is |u| x |i|
+    # still sparse matrix if the rows don't intersect on t
+    W = U * I.T
+    # calculate vectors of sums for rows (dense)
+    dU = np.sqrt(U.multiply(U).sum(1))
+    dI = np.sqrt(I.multiply(I).sum(1))
+    # elementwise divide W by user x item matrix of profile norm multiplications
+    # in order to avoid making a huge dense matrix, we need perform the division in two steps
+    __divide_csr_cols_by_vector(W, np.asarray(dU).reshape(-1))
+    __divide_csr_rows_by_vector(W, np.asarray(dI).reshape(-1))
+    # hooray, the u x v matrix is still sparse!
+    return W
+
+class UserModel:
+    '''This model needs a dataset with user preferences (ratings).
+       When the model is built, the preferences are mean-normalized
+       if the argument mormalize is provided, 
+       the mean for each user is stored separately.
+    '''
+    def __init__(self, normalize = True, verbose = True):
+        self.__verbose = verbose
+        self.__normalize = normalize
+
+    def build(self, dataset):
+        '''Processes a dataset with user-item ratings.
+        '''
+        self.__build_user_preferences(dataset.ratings)
+
+    def R(self):
+        '''Return CSR matrix of user ratings (users x items x float)
+        '''
+        return self.__R
+
+    def P(self):
+        '''Return CSR matrix of user preferences (users x items x {0,1})
+        '''
+        return self.__P
+
+    def normalized(self):
+        return self.__normalize
+
+    def mean(self):
+        '''Return a vector of mean user ratings
+        '''
+        return self.__mean
+
+    def __build_user_preferences(self, ratings):
+        # put '1' for all ratings >= 3.5 as a users x items matrix of user preferences
+        self.__R = self.__convert_tocsr(ratings)
+        self.__P = self.__extract_facts(ratings)
+        self.__mean = self.__R.sum(1) / (self.__R != 0).sum(1)
+        if self.__normalize:
+            self.__R = self.__R - sparse.csr_matrix((self.__R != 0).multiply(self.__mean))
+
+    def __extract_facts(self, triples):
+        '''Converts (id1, id2, n) triples to a sparse.csr_matrix of (id1, id2, 1)
+        ''' 
+        # construct coo_matrix((V,(I,J))) and convert it to CSR for better performance
+        P = sparse.coo_matrix(([1,]*len(triples), zip(*triples)[:2] )).tocsr()
+        self.__log('\tdata converted to binary and loaded to %dx%d matrix' % P.shape)
+        return P
+ 
+    def __convert_tocsr(self, triples):
+        '''Converts (id1, id2, n) triples to a sparse.csr_matrix of (id1, id2, 1)''' 
+        # construct coo_matrix((V,(I,J))) and convert it to CSR for better performance
+        R = sparse.coo_matrix((zip(*triples)[2], zip(*triples)[:2])).tocsr()
+        self.__log('\tdata loaded to %dx%d matrix' % R.shape)
+        return R
+   
+    def __log(self, msg):
+        if self.__verbose:
+            print msg
+
+class DataIO:
+    '''Responsible for reading data from whatever source (CSV, DB, etc),
+           normalizing indexes for processing and writing results in denormalized form.
+           Also it provides an access to translation dictionaries between external and internal ids.
+           Prettyprinting of the recommendation results is performed using special Printer classes
+           supplied to the DataIO.
+    '''
+    
+    def __init__(self, verbose = True):
+        self.__verbose = verbose
+        self.ratings = []           # [(user, item, rating)]
+        self.item_tags = []         # {(user, tag, count)}
+    
+    def load(self, ratings_file, tags_file = None, items_file = None):
+        '''Loads the data from a proper source, and performs index normalization.'''
+        self.__read_ratings(ratings_file)
+        if tags_file:
+            self.__read_tags(tags_file)
+        if items_file:
+            self.__read_titles(items_file)
+        self.__normalize()
+        return
+
+    def translate_users(self, old_user_ids):
+        '''Takes an array of original user ids and translates them into the normalized form
+        '''
+        return [self.new_user_idx(i) for i in old_user_ids]
+
+    def translate_items(self, old_item_ids):
+        '''Takes an array of original item ids and translates them into the normalized form
+        '''
+        return [self.new_item_idx(i) for i in old_item_ids]
+
+    def num_items(self):
+        '''Number of different items in the dataset'''
+        return len(self.__old_item_idx)
+
+    def num_users(self):
+        '''Number of different users in the dataset'''
+        return len(self.__old_user_idx)
+
+    def num_tags(self):
+        '''Number of different users in the dataset'''
+        return len(self.__item_tags)
+
+    def old_item_idx(self, idx):
+        '''Old to new index conversion.'''
+        return self.__old_item_idx[idx]
+
+    def new_item_idx(self, idx):
+        '''New to old index conversion.'''
+        return self.__new_item_idx[idx]
+
+    def old_user_idx(self, idx):
+        '''Old to new index conversion.'''
+        return self.__old_user_idx[idx]
+
+    def new_user_idx(self, idx):
+        '''New to old index conversion.'''
+        return self.__new_user_idx[idx]
+        pass
+
+    def tags(self, idx):
+        '''Get tag by index.'''
+        return self.__item_tags[idx]
+
+    def title(self, idx):
+        '''Get title by (old) index.'''
+        return self.item_titles[idx]
+
+    def tag_idx(self, tag):
+        '''Get tag index.'''
+        return self.__item_tag_idx[tag]
+        pass
+
+    def __log(self, msg):
+        if self.__verbose:
+            print msg
+
+    def __read_ratings(self, filename):
+        self.__log('Reading (user_id,item_id,rating) tuples from %s' % filename)
+        with open(filename, 'rbU') as csvfile:
+            csv_reader = csv.reader(csvfile, delimiter=',')
+            self.ratings = [(int(r[0]),int(r[1]),float(r[2])) for r in csv_reader]
+            self.__log('\tread %d entries' % len(self.ratings))
+            csvfile.close()
+            return
+
+    def __read_tags(self, filename):
+        self.__log('Reading (item_id,tag) tuples from %s' % filename)
+        with open(filename, 'rbU') as csvfile:
+            csv_reader = csv.reader(csvfile, delimiter=',')
+            tagdict = defaultdict(int)
+            # aggregate item-tag pairs
+            for (item, tag) in csv_reader:
+                tagdict[(int(item),tag)] += 1
+            # turn it into a list
+            self.item_tags = [(i,t,c) for ((i,t),c) in tagdict.items()]
+            self.__log('\tread %d entries' % len(self.item_tags))
+            csvfile.close()
+
+    def __read_titles(self, filename):
+        self.__log('Reading (item_id,title) tuples from %s' % filename)
+        with open(filename, 'rbU') as csvfile:
+            self.item_titles = dict()
+            csv_reader = csv.reader(csvfile, delimiter=',')
+            # aggregate item-tag pairs
+            for (item, title) in csv_reader:
+                self.item_titles[int(item)] = title
+            # turn it into a list
+            self.__log('\tread %d entries' % len(self.item_titles.keys()))
+            csvfile.close()
+
+    def __normalize(self):
+        '''Normalize the data by creating custom user and item indexes'''
+        # collect all user, item and tag values
+        (users_rated, items_rated) = zip(*self.ratings)[:2]
+        (items_tagged, tags) = zip(*self.item_tags)[:2] if self.item_tags else ([],[])
+        # normalize all of them by creating conversion dictionaries
+        (self.__old_user_idx, self.__new_user_idx) = self.__normalize_idx(users_rated)
+        (self.__old_item_idx, self.__new_item_idx) = self.__normalize_idx(items_rated, items_tagged)
+        (self.__item_tags, self.__item_tag_idx) = self.__normalize_idx(tags)
+        # translate everything into normalized indexes
+        #TODO: inplace change may be more efficient
+        self.ratings = [(self.__new_user_idx[u], self.__new_item_idx[i], r) for (u,i,r) in self.ratings]
+        self.item_tags = [(self.__new_item_idx[i], self.__item_tag_idx[t], c) for (i,t,c) in self.item_tags]
+    
+    def __normalize_idx(self, *idx_list):
+        '''idx_list is a list of indexes with duplicates and gaps
+           returns an array of old indexes and a dict old_idx -> new_idx
+           two arrays is due to dict.keys() are unsorted
+        '''
+        # 1. merge value lists, remove duplicates and sort
+        old_idx = sorted(set().union(*idx_list))
+        # 2. add new normalized index and put to a dict
+        return old_idx, dict(zip(old_idx,range(len(old_idx))))
+
+    def print_recs(self, recs, given_items = None, given_users = None, printer = None):
+        '''Stringifies recommendations along with given items or users, 
+           after translating them into original index system.
+           It takes recommendations and given_items or given users in normalized form,
+            translate them to the original indexes and passes to the printer function.
+           Depending of what was passed, either given_users, or given_items, or None
+            is passed to the printer function as the first argument.
+        '''
+        # translate given objects to the original indexes
+        given = [self.old_user_idx(u) for u in given_users] if given_users else [self.old_item_idx(i) for i in given_items] if given_items else None
+        # translate recommended items to the original indexes
+        recs = [[(self.old_item_idx(i),s) for i,s in r] for r in recs]
+
+        return printer(given, recs) if printer else default_printer(given, recs)
+
+def default_printer(given, recs):
+    return '\n'.join(['%d: ' % i + ', '.join(['(%d,%.2f)' % (j,s) for j,s in r]) for i,r in zip(given,recs)])
