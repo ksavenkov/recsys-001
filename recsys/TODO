@@ -1,0 +1,8 @@
+Add and commit everything
+Fix scores test
+Move mean-centering from model to the scoring function; if normalization is used, the model should provide more interfaces.
+Create KNN recommender
+Move KNN tests to recommender
+Refactor WA4 solution to use recommender
+Update recsys diagram
+Update exported lectures
