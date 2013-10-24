@@ -8,8 +8,6 @@ from model import UserModel
 
 ratings_file = '../data/ratings.csv'
 items_file = '../data/movie-titles.csv'
-given_users = [1024,2048]
-given_items = [77,788,36955]
 NN = 30
 answer_file = 'part_1.csv'
 
